@@ -15,6 +15,7 @@ IMAGE = 1
 VIDEO = 2
 
 
+# Functions to be called in a multiprocess fashion
 def mkargs_file(f):
   return (f.path,f.qhash,f.size,f.type,f.hash)
 
@@ -47,6 +48,9 @@ def get_all_files(d):
 
 
 class File:
+  """
+  Object representing a file in the context of the Database
+  """
   def __init__(self,path,**kwargs):
     self.path = path
     for kw in ['_qhash','_size','type','hash']:
@@ -80,12 +84,21 @@ class File:
 
 
 class Database:
+  """
+  The core of this program: represents a collection of files
+
+  Can process the files given in the directory specified inconfig file,
+  compare them and find duplicates in many different ways
+  """
   def __init__(self,config_file):
     self.config_file = config_file
     self.cfg = Config(config_file)
     self.db = sqlite3.connect(self.cfg.db_file)
 
   def reset(self):
+    """
+    To create or completely wipe the database
+    """
     if input("Reset database? ALL DATA WILL BE LOST ").strip().lower() != 'y':
       print("Cancelled")
       raise Exception("Aborted")
@@ -145,6 +158,9 @@ class Database:
     print("OK!")
 
   def _get_npz_path(self,fname):
+    """
+    Returns the path of the npz file containing the video signature
+    """
     return self.cfg.vid_library+fname[len(self.cfg.root_dir):]+'.npz'
 
   def get_file(self,fname):
@@ -154,7 +170,7 @@ class Database:
     If in the db, simply read th corresponding entry, else create the
     mandatory fields
 
-    IT DOES NOT ADD THE FILE TO THE DB
+    It does not add the file to the db
     """
     cur = self.db.cursor()
     cur.execute("SELECT id,qhash,size,type,hash FROM files WHERE path = ?",
