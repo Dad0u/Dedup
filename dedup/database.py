@@ -27,8 +27,18 @@ def mkargs_img(f):
 
 
 def mkargs_vid(f):
+  # Updating the signature will not be done when adding many files
+  # (RAM would be limiting, so useless)
+  #if f.signature is not None:
+  #  os.makedirs(os.path.dirname(f.signature_path),exist_ok=True)
+  #  np.save(f.signature_path,f.video.signature)
   return (f.path,f.video.height,f.video.width,f.video.length,
     None if f.video.sigrgb is None else f.video.sigrgb.tobytes())
+
+
+def mksig(f):
+  f.video.compute_sig()
+  return f
 
 
 def get_all_files(d):
@@ -157,19 +167,19 @@ class Database:
     UNIQUE (f1,f2));""")
     print("OK!")
 
-  def _get_npz_path(self,fname):
+  def _get_npy_path(self,fname):
     """
-    Returns the path of the npz file containing the video signature
+    Returns the path of the npy file containing the video signature
     """
-    return self.cfg.vid_library+fname[len(self.cfg.root_dir):]+'.npz'
+    return self.cfg.vid_library+fname[
+        len(os.path.abspath(self.cfg.root_dir)):]+'.npy'
 
   def get_file(self,fname):
     """
     Returns a File object given a name
 
-    If in the db, simply read th corresponding entry, else create the
+    If in the db, simply read the corresponding entry, else create the
     mandatory fields
-
     It does not add the file to the db
     """
     cur = self.db.cursor()
@@ -195,12 +205,9 @@ class Database:
         h,w,l,s = r[1:]
         sigrgb = s if s is None else np.frombuffer(
             s,dtype=np.uint8).reshape(-1,3)
-        try:
-          sig = np.load(self._get_npz_path(f.path))['arr_0']
-        except FileNotFoundError:
-          sig = None
         f.video = Video(f.path,
-            height=h,width=w,length=l,sigrgb=sigrgb,signature=sig)
+            height=h,width=w,length=l,sigrgb=sigrgb,
+            signature_path=self._get_npy_path(f.path))
     else:
       f = File(fname,type=self.get_type(fname))
     return f
@@ -309,8 +316,8 @@ class Database:
       (f.video.height, f.video.width,
       f.video.length, f.video.sigrgb, f.path))
       if f.video.signature is not None:
-        os.makedirs(os.path.dirname(self._get_npz_path(f.path)),exist_ok=True)
-        np.savez(self._get_npz_path(f.path),f.video.signature)
+        os.makedirs(os.path.dirname(self._get_npy_path(f.path)),exist_ok=True)
+        np.save(self._get_npy_path(f.path),f.video.signature)
     self.db.commit()
 
   def remove(self,fname:str): # TODO Untested
@@ -365,9 +372,50 @@ class Database:
     self.remove_many(torm)
     print("Ok.")
 
-  def compute_video_signatures(self,l=None):
+  def compute_video_signatures_single(self,l=None):
+    """
+    Compute the video signatures of the files in the list
+    single threaded version for reference
+    (Note that ffmpeg is usually multi-threaded so it is not that inefficient)
+
+    If no list is given, compute all the missing vids
+    """
     if l is None:
-      pass # TODO
+      cur = self.db.cursor()
+      cur.execute("""SELECT path FROM files WHERE id IN
+      (SELECT id FROM vid WHERE sigrgb IS NULL)""")
+      l = [t[0] for t in cur.fetchall()]
+    for name in l:
+      f = self.get_file(name)
+      f.video.compute_sig()
+      self.update_file(f)
+
+  def compute_video_signatures(self,l=None):
+    """
+    Compute the video signatures of the files in the list
+
+    If no list is given, compute all the missing vids
+    """
+    if l is None:
+      cur = self.db.cursor()
+      cur.execute("""SELECT path FROM files WHERE id IN
+      (SELECT id FROM vid WHERE sigrgb IS NULL)""")
+      l = [t[0] for t in cur.fetchall()]
+    if not l:
+      print("No video signature to compute")
+      return
+    for i,f in enumerate(
+        Pool(4).imap_unordered(mksig,[self.get_file(name) for name in l]),1):
+      print(f"\r{i+1}/{len(l)} ({100*(i+1)/len(l):.2f}%)")
+      self.update_file(f)
+
+  def check_integrity(self): # TODO
+    """
+    Check if the database is coherent, remove unused entries
+
+    Will check vid_library too
+    """
+    pass
 
   def filter_matching(self,key,source=None):
     """

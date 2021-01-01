@@ -1,4 +1,4 @@
-#import os
+import os
 import numpy as np
 import ffmpeg
 
@@ -42,10 +42,11 @@ def get_res(v):
 class Video:
   def __init__(self,path,**kwargs):
     self.path = path
-    for kw in ['_height','_width','_length','sigrgb','signature']:
+    for kw in ['_height','_width','_length','sigrgb','signature_path']:
       setattr(self,kw,kwargs.pop(kw.strip('_'),None))
     if kwargs:
       raise AttributeError(f"Unknown kwargs in Video.__init__: {kwargs}")
+    self._signature = None
 
   def compute_attrs(self):
     try:
@@ -56,11 +57,11 @@ class Video:
       self._length = 0
 
   def compute_sig(self):
-    self.signature = mkarr(self.path)
+    self._signature = mkarr(self.path)
     #d = vid_library_path+os.path.dirname(self.path)
     #os.makedirs(d,exist_ok=True)
-    #np.savez(d+os.basename(self.path)+'.npz')
-    self.sigrgb = to1d(self.signature)
+    #np.save(d+os.basename(self.path)+'.npy')
+    self.sigrgb = to1d(self._signature)
 
   @property
   def height(self):
@@ -79,3 +80,9 @@ class Video:
     if self._length is None:
       self.compute_attrs()
     return self._length
+
+  @property
+  def signature(self):
+    if self._signature is None and os.path.exists(self.signature_file):
+      self._signature = np.load(self.signature_file)
+    return self._signature
