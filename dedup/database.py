@@ -35,9 +35,10 @@ def get_all_files(d):
   Get all the files in the folder (recursively)
   """
   r = []
-  l = os.listdir(d)
+  absd = os.path.abspath(d)
+  l = os.listdir(absd)
   for f in l:
-    full = os.path.join(d,f)
+    full = os.path.join(absd,f)
     if os.path.isdir(full):
       r += get_all_files(full)
     else:
