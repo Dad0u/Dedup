@@ -1,0 +1,67 @@
+File based dedup :
+not necessarily stricly identic files: can dedup similar media
+
+Hash funcs : Take the file name, return a short signature
+
+Global approach:
+  Save all hashes (Update if needed)
+  Compare files from fastest to most accurate method
+  Compare same media type using media hashes
+
+
+Scan method:
+  Two groups: source and dest
+    All files in source will be compared with every file in dest
+    (the groups can overlap, to compare files together in a group)
+    Obviously a file must not match with itself >.<
+  Scan method :
+    Exact Type is ignored, only content is compared
+    Pic: excludes all files that are not pics
+    Vid idem for vids
+
+
+Database:
+  MANDATORY: File, type, size, short hash
+  Optional: signatures (optionally media signatures: image, or path to a npy file for vids)
+  For each file, a table containing comparison with all other files (a database file for each file ?)
+
+
+Handle Deduplication file-pair-wise:
+For each pair, add an entry with similarity for every comparison method
+(can be blank)
+Add a bool entry for manual comparison: tell the soft that they are different
+to avoid any further comparison
+comp table: 2 ids (ids of the files)
+Each pair must be unique
+First one MUST be smaller
+-> For every comparison method, comp(a,b) MUST BE EQUAL TO comp(b,a)
+
+
+Comp list:
+  File based:
+    Size
+    Quick hash
+    Full hash
+  Img based:
+    ratio+avg_color
+    Diff sum
+    ? Extended detection (crop/rotate/etc...)
+  Vid based:
+    length
+    rgb_1d <- NO! to heavy. On second though, ~1byte/s is acceptable
+    diff (similar length)
+    Partial match (-> index+offset!)
+    ? Extended detection (crop/accelerate)
+
+DB needed only for img and vid
+table for each algo!:
+  Manually specify different (ida, idb)
+
+  img comparison (ida,idb, diff sum)
+
+  vid comparison
+    comparator_identical(ida,idb, score, offset)
+    comparator_included_v1(ida, idb, rgb_1d_score, rgb_1d_offset, match_score, match_offset)
+
+Add config file : rootdir, exclusion, database file,vid library
+> Make path relative (more portable)
