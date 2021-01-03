@@ -56,6 +56,17 @@ def get_all_files(d):
       r.append(full)
   return r
 
+def human_readable(size):
+  """
+  Takes a size in Bytes, returns a human readable string
+  """
+  if size < 1024:
+    return f"{size} B"
+  for i,prefix in enumerate('KMGTP',1):
+    if size/1024**i < 1024:
+      return f"{size/1024**i:.2f} {prefix}iB"
+  return f"{size/1024**i:.2f} {prefix}iB"
+
 
 class File:
   """
@@ -91,6 +102,10 @@ class File:
   def compute_hash(self,recompute=False):
     if recompute or self.hash is None:
       self.hash = hash_file(self.path)
+
+  def __repr__(self):
+    t = {NOMEDIA:'NOMEDIA',IMAGE:'IMAGE',VIDEO:'VIDEO'}[self.type]
+    return f"<File:{t}> {self.path} ({human_readable(self.size)})"
 
 
 class Database:
@@ -211,6 +226,13 @@ class Database:
     else:
       f = File(fname,type=self.get_type(fname))
     return f
+
+  def get_many(self,l:List[str]): # TODO
+    """
+    Just like get_file but only for a list of files already in the db
+
+    Takes a list of path and returns a list of File objects
+    """
 
   def get_type(self,fname:str):
     """
