@@ -83,6 +83,6 @@ class Video:
 
   @property
   def signature(self):
-    if self._signature is None and os.path.exists(self.signature_file):
-      self._signature = np.load(self.signature_file)
+    if self._signature is None and os.path.exists(self.signature_path):
+      self._signature = np.load(self.signature_path)
     return self._signature
