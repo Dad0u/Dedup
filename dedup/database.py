@@ -283,7 +283,7 @@ class Database:
     VALUES ((SELECT id FROM files WHERE path = ?),?,?,?,?)""",toadd)
     print("OK")
 
-  #def get_file_id(self,fname): # TODO Untested
+  #def get_file_id(self,fname):
   #  """
   #  Gets the id of a file given its path
   #  """
@@ -320,7 +320,7 @@ class Database:
         np.save(self._get_npy_path(f.path),f.video.signature)
     self.db.commit()
 
-  def remove(self,fname:str): # TODO Untested
+  def remove(self,fname:str):
     """
     Removes the file of the given name from the db
     """
@@ -330,21 +330,30 @@ class Database:
     cur.execute("""DELETE FROM vid WHERE id =
         (SELECT id FROM files WHERE path = ?)""",(fname,))
     cur.execute("DELETE FROM files WHERE path = ?",(fname,))
+    try:
+      os.remove(self._get_npy_path(fname))
+    except FileNotFoundError:
+      pass
     self.db.commit()
 
-  def remove_many(self,l:List[str]): # TODO Untested
+  def remove_many(self,l:List[str]):
     """
     Removes a list of path from the db
     """
     cur = self.db.cursor()
     cur.execute(f"""DELETE FROM img WHERE id IN
         (SELECT id FROM files WHERE path IN
-        {','.join(['?' for f in l])})""",[fname for fname in l])
+        ({','.join(['?' for f in l])}))""",l)
     cur.execute(f"""DELETE FROM vid WHERE id IN
         (SELECT id FROM files WHERE path IN
-        {','.join(['?' for f in l])})""",[fname for fname in l])
-    cur.execute("""DELETE FROM files WHERE path IN
-        {','.join(['?' for f in l])})""",[fname for fname in l])
+        ({','.join(['?' for f in l])}))""",l)
+    cur.execute(f"""DELETE FROM files WHERE path IN
+        ({','.join(['?' for f in l])})""",l)
+    for name in l:
+      try:
+        os.remove(self._get_npy_path(name))
+      except FileNotFoundError:
+        pass
     self.db.commit()
 
   def detect_and_add(self):
@@ -358,7 +367,7 @@ class Database:
     new = [File(f,type=self.get_type(f)) for f in flist if f not in r]
     self.add_files(new)
 
-  def cleanup(self,flist): # TODO untested
+  def cleanup(self):
     """
     Remove all the files from the db that are not in the root_dir
     """
@@ -367,8 +376,10 @@ class Database:
     cur.execute("SELECT path FROM files")
     flist = [t[0] for t in cur.fetchall()]
     torm = [f for f in dblist if f not in flist]
-    if torm:
-      print(f"{len(torm)} entries to remove...",end="",flush=True)
+    if not torm:
+      print("Nothing to do")
+      return
+    print(f"{len(torm)} entries to remove...",end="",flush=True)
     self.remove_many(torm)
     print("Ok.")
 
