@@ -36,8 +36,12 @@ def mkargs_vid(f):
     None if f.video.sigrgb is None else f.video.sigrgb.tobytes())
 
 
-def mksig(f):
-  f.video.compute_sig()
+def mk_video_sig(f):
+  f.video.compute_sigrgb()
+  return f
+
+def mk_image_sig(f):
+  f.image.compute_signature()
   return f
 
 
@@ -405,27 +409,9 @@ class Database:
     self.remove_many(torm)
     print("Ok.")
 
-  def compute_video_signatures_single(self,l=None):
+  def compute_video_signature(self,l=None):
     """
-    Compute the video signatures of the files in the list
-    single threaded version for reference
-    (Note that ffmpeg is usually multi-threaded so it is not that inefficient)
-
-    If no list is given, compute all the missing vids
-    """
-    if l is None:
-      cur = self.db.cursor()
-      cur.execute("""SELECT path FROM files WHERE id IN
-      (SELECT id FROM vid WHERE sigrgb IS NULL)""")
-      l = [t[0] for t in cur.fetchall()]
-    for name in l:
-      f = self.get_file(name)
-      f.video.compute_sig()
-      self.update_file(f)
-
-  def compute_video_signatures(self,l=None):
-    """
-    Compute the video signatures of the files in the list
+    Compute the video signatures of the file names in the list
 
     If no list is given, compute all the missing vids
     """
@@ -438,7 +424,28 @@ class Database:
       print("No video signature to compute")
       return
     for i,f in enumerate(
-        Pool(4).imap_unordered(mksig,[self.get_file(name) for name in l]),1):
+        Pool(4).imap_unordered(mk_video_sig,
+          [self.get_file(name) for name in l]),1):
+      print(f"\r{i+1}/{len(l)} ({100*(i+1)/len(l):.2f}%)")
+      self.update_file(f)
+
+  def compute_image_signature(self,l=None):
+    """
+    Compute the image signatures of the file names in the list
+
+    If no list is given, compute all the missing signatures
+    """
+    if l is None:
+      cur = self.db.cursor()
+      cur.execute("""SELECT path FROM files WHERE id IN
+      (SELECT id FROM img WHERE signature IS NULL)""")
+      l = [t[0] for t in cur.fetchall()]
+    if not l:
+      print("No image signature to compute")
+      return
+    for i,f in enumerate(
+        Pool(4).imap_unordered(mk_image_sig,
+          [self.get_file(name) for name in l]),1):
       print(f"\r{i+1}/{len(l)} ({100*(i+1)/len(l):.2f}%)")
       self.update_file(f)
 
