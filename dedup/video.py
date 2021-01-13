@@ -56,7 +56,7 @@ class Video:
       self._height, self._width = 0,0
       self._length = 0
 
-  def compute_sigrgb(self):
+  def compute_sig(self):
     self._signature = mkarr(self.path)
     #d = vid_library_path+os.path.dirname(self.path)
     #os.makedirs(d,exist_ok=True)

@@ -37,7 +37,7 @@ def mkargs_vid(f):
 
 
 def mk_video_sig(f):
-  f.video.compute_sigrgb()
+  f.video.compute_signatures()
   return f
 
 def mk_image_sig(f):
