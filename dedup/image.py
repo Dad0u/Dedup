@@ -2,6 +2,8 @@ import cv2
 import numpy as np
 from PIL import Image as PILImage
 
+from .file import File,IMAGE
+
 
 def make_signature(img):
   h,w,_ = img.shape
@@ -16,15 +18,15 @@ def make_signature(img):
   return sig
 
 
-class Image:
+class Image(File):
   def __init__(self,path,**kwargs):
     self.path = path
     for kw in ['_height','_width','brightness','signature']:
       setattr(self,kw,kwargs.pop(kw.strip('_'),None))
-    if kwargs:
-      raise AttributeError(f"Unknown kwargs in Image.__init__: {kwargs}")
     if self.brightness is None:
       self.brightness = (0,0,0)
+    File.__init__(self,path,**kwargs)
+    self.type = IMAGE
 
   def compute_attr(self):
     try:

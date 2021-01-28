@@ -5,14 +5,10 @@ from multiprocessing import Pool,cpu_count
 import numpy as np
 import sqlite3
 
-from .hashing import quick_hash_file, hash_file
+from .file import File,IMAGE,VIDEO,NOMEDIA
 from .video import Video
 from .image import Image
 from .config import Config
-
-NOMEDIA = 0
-IMAGE = 1
-VIDEO = 2
 
 
 # Functions to be called in a multiprocess fashion
@@ -21,9 +17,9 @@ def mkargs_file(f):
 
 
 def mkargs_img(f):
-  return (f.path,f.image.height,f.image.width,int(f.image.r*256),
-    int(f.image.g*256),int(f.image.b*256),
-    None if f.image.signature is None else f.image.signature.tobytes())
+  return (f.path,f.height,f.width,int(f.r*256),
+    int(f.g*256),int(f.b*256),
+    None if f.signature is None else f.signature.tobytes())
 
 
 def mkargs_vid(f):
@@ -31,17 +27,18 @@ def mkargs_vid(f):
   # (RAM would be limiting, so useless)
   #if f.signature is not None:
   #  os.makedirs(os.path.dirname(f.signature_path),exist_ok=True)
-  #  np.save(f.signature_path,f.video.signature)
-  return (f.path,f.video.height,f.video.width,f.video.length,
-    None if f.video.sigrgb is None else f.video.sigrgb.tobytes())
+  #  np.save(f.signature_path,f.signature)
+  return (f.path,f.height,f.width,f.length,
+    None if f.sigrgb is None else f.sigrgb.tobytes())
 
 
 def mk_video_sig(f):
-  f.video.compute_signatures()
+  f.compute_signatures()
   return f
 
+
 def mk_image_sig(f):
-  f.image.compute_signature()
+  f.compute_signature()
   return f
 
 
@@ -59,57 +56,6 @@ def get_all_files(d):
     else:
       r.append(full)
   return r
-
-def human_readable(size):
-  """
-  Takes a size in Bytes, returns a human readable string
-  """
-  if size < 1024:
-    return f"{size} B"
-  for i,prefix in enumerate('KMGTP',1):
-    if size/1024**i < 1024:
-      return f"{size/1024**i:.2f} {prefix}iB"
-  return f"{size/1024**i:.2f} {prefix}iB"
-
-
-class File:
-  """
-  Object representing a file in the context of the Database
-  """
-  def __init__(self,path,**kwargs):
-    self.path = path
-    for kw in ['_qhash','_size','type','hash']:
-      setattr(self,kw,kwargs.pop(kw.strip('_'),None))
-    if self.type == IMAGE:
-      self.image = Image(path,**kwargs)
-    elif self.type == VIDEO:
-      self.video = Video(path,**kwargs)
-    # Do not forget to raise an Exception if we have invalid kwargs
-    # If we make a media, the media constructor will handle it
-    elif kwargs:
-      raise AttributeError(f"Unknown kwargs in File.__init__: {kwargs}")
-
-  @property
-  def qhash(self):
-    if self._qhash is None:
-      self._qhash = quick_hash_file(self.path)
-      if self.size < 3*1024*1024:
-        self.hash = self._qhash
-    return self._qhash
-
-  @property
-  def size(self):
-    if self._size is None:
-      self._size = os.path.getsize(self.path)
-    return self._size
-
-  def compute_hash(self,recompute=False):
-    if recompute or self.hash is None:
-      self.hash = hash_file(self.path)
-
-  def __repr__(self):
-    t = {NOMEDIA:'NOMEDIA',IMAGE:'IMAGE',VIDEO:'VIDEO'}[self.type]
-    return f"<File:{t}> {self.path} ({human_readable(self.size)})"
 
 
 class Database:
@@ -193,50 +139,56 @@ class Database:
     return self.cfg.vid_library+fname[
         len(os.path.abspath(self.cfg.root_dir)):]+'.npy'
 
+  def new_file(self,fname):
+    """
+    Returns a new File object
+
+    Will NOT check if it exists in the DB
+    """
+    t = self.get_type(fname)
+    if t == NOMEDIA:
+      return File(fname)
+    elif t == IMAGE:
+      return Image(fname)
+    elif t == VIDEO:
+      return Video(fname,signature_path=self._get_npy_path(fname))
+
   def get_file(self,fname):
     """
-    Returns a File object given a name
+    Returns a File object from the DB given a name
 
-    If in the db, simply read the corresponding entry, else create the
-    mandatory fields
-    It does not add the file to the db
+    Returns None if not found
     """
     cur = self.db.cursor()
     cur.execute("SELECT id,qhash,size,type,hash FROM files WHERE path = ?",
         (fname,))
     r = cur.fetchone()
-    if r:
-      f = File(fname,**dict((k,v)
-        for k,v in zip(['qhash','size','type','hash'],r[1:])))
-      if f.type == IMAGE:
-        cur.execute("""SELECT * FROM img WHERE id =
-        (SELECT id FROM files WHERE path = ?)""",(f.path,))
-        r = cur.fetchone()
-        h,w,r,g,b,s = r[1:]
-        sig = s if s is None else np.frombuffer(
-            s,dtype=np.uint16).reshape(3,3,3)
-        f.image = Image(f.path,height=h,width=w,
-            brightness=(r/256,g/256,b/256),signature=sig)
-      elif f.type == VIDEO:
-        cur.execute("""SELECT * FROM vid WHERE id =
-        (SELECT id FROM files WHERE path = ?)""",(f.path,))
-        r = cur.fetchone()
-        h,w,l,s = r[1:]
-        sigrgb = s if s is None else np.frombuffer(
-            s,dtype=np.uint8).reshape(-1,3)
-        f.video = Video(f.path,
-            height=h,width=w,length=l,sigrgb=sigrgb,
-            signature_path=self._get_npy_path(f.path))
-    else:
-      f = File(fname,type=self.get_type(fname))
-    return f
-
-  def get_many(self,l:List[str]): # TODO
-    """
-    Just like get_file but only for a list of files already in the db
-
-    Takes a list of path and returns a list of File objects
-    """
+    if not r:
+      return
+    d = dict((k,v) for k,v in zip(['qhash','size','type','hash'],r[1:]))
+    t = d.pop('type')
+    if t == IMAGE:
+      cur.execute("""SELECT * FROM img WHERE id =
+      (SELECT id FROM files WHERE path = ?)""",(fname,))
+      r = cur.fetchone()
+      h,w,r,g,b,s = r[1:]
+      sig = s if s is None else np.frombuffer(
+          s,dtype=np.uint16).reshape(3,3,3)
+      d['height'],d['width'] = h,w
+      d['brightness'] = (r,g,b)
+      d['signature'] = sig
+      return Image(fname,**d)
+    elif t == VIDEO:
+      cur.execute("""SELECT * FROM vid WHERE id =
+      (SELECT id FROM files WHERE path = ?)""",(fname,))
+      r = cur.fetchone()
+      h,w,l,s = r[1:]
+      sigrgb = s if s is None else np.frombuffer(
+          s,dtype=np.uint8).reshape(-1,3)
+      d['height'],d['width'] = h,w
+      d['length'] = l
+      d['sigrgb'] = sigrgb
+      return Video(fname,signature_path=self._get_npy_path(fname),**d)
 
   def get_type(self,fname:str):
     """
@@ -278,8 +230,8 @@ class Database:
     Internal method used to update the tables db
     """
     toadd = []
-    for i,v in enumerate(Pool(cpu_count()).imap_unordered(mkargs_file,l)):
-      print(f"\r{i+1}/{len(l)} ({100*(i+1)/len(l):.2f}%)",end='')
+    for i,v in enumerate(Pool(cpu_count()).imap_unordered(mkargs_file,l),1):
+      print(f"\r{i}/{len(l)} ({100*i/len(l):.2f}%)",end='')
       toadd.append(v)
     cur = self.db.cursor()
     print("\nAdding to db...",end='',flush=True)
@@ -289,7 +241,7 @@ class Database:
 
   def _insert_images(self,l):
     toadd = []
-    for i,v in enumerate(Pool(cpu_count()).imap_unordered(mkargs_img,l)):
+    for i,v in enumerate(Pool(cpu_count()).imap_unordered(mkargs_img,l),1):
       print(f"\r{i}/{len(l)} ({100*(i)/len(l):.2f}%)",end='')
       toadd.append(v)
     cur = self.db.cursor()
@@ -300,8 +252,8 @@ class Database:
 
   def _insert_videos(self,l):
     toadd = []
-    for i,v in enumerate(Pool(cpu_count()).imap_unordered(mkargs_vid,l)):
-      print(f"\r{i+1}/{len(l)} ({100*(i+1)/len(l):.2f}%)",end='')
+    for i,v in enumerate(Pool(cpu_count()).imap_unordered(mkargs_vid,l),1):
+      print(f"\r{i}/{len(l)} ({100*i/len(l):.2f}%)",end='')
       toadd.append(v)
     cur = self.db.cursor()
     print("\nAdding to db...",end='',flush=True)
@@ -332,18 +284,18 @@ class Database:
       cur.execute("""UPDATE img SET
         height = ?, width = ?, r = ?, g = ?, b = ?, signature = ?
       WHERE id = (SELECT id FROM files WHERE path = ?)""",
-      (f.image.height,f.image.width,
-        int(f.image.r*256), int(f.image.g*256), int(f.image.b*256),
-        None if f.image.signature is None else f.image.signature.tobytes(),
+      (f.height,f.width,
+        int(f.r*256), int(f.g*256), int(f.b*256),
+        None if f.signature is None else f.signature.tobytes(),
         f.path))
     elif f.type == VIDEO:
       cur.execute("""UPDATE vid SET height = ?, width = ?, length = ?,
       sigrgb = ? WHERE id = (SELECT id FROM files WHERE path = ?)""",
-      (f.video.height, f.video.width,
-      f.video.length, f.video.sigrgb, f.path))
-      if f.video.signature is not None:
+      (f.height, f.width,
+      f.length, f.sigrgb, f.path))
+      if f.signature is not None:
         os.makedirs(os.path.dirname(self._get_npy_path(f.path)),exist_ok=True)
-        np.save(self._get_npy_path(f.path),f.video.signature)
+        np.save(self._get_npy_path(f.path),f.signature)
     self.db.commit()
 
   def remove(self,fname:str):
@@ -390,7 +342,7 @@ class Database:
     cur = self.db.cursor()
     cur.execute("SELECT path FROM files")
     r = [t[0] for t in cur.fetchall()]
-    new = [File(f,type=self.get_type(f)) for f in flist if f not in r]
+    new = [self.new_file(f) for f in flist if f not in r]
     self.add_files(new)
 
   def cleanup(self):
@@ -426,7 +378,7 @@ class Database:
     for i,f in enumerate(
         Pool(4).imap_unordered(mk_video_sig,
           [self.get_file(name) for name in l]),1):
-      print(f"\r{i+1}/{len(l)} ({100*(i+1)/len(l):.2f}%)")
+      print(f"\r{i}/{len(l)} ({100*i/len(l):.2f}%)")
       self.update_file(f)
 
   def compute_image_signature(self,l=None):
@@ -446,7 +398,7 @@ class Database:
     for i,f in enumerate(
         Pool(4).imap_unordered(mk_image_sig,
           [self.get_file(name) for name in l]),1):
-      print(f"\r{i+1}/{len(l)} ({100*(i+1)/len(l):.2f}%)")
+      print(f"\r{i}/{len(l)} ({100*i/len(l):.2f}%)")
       self.update_file(f)
 
   def check_integrity(self): # TODO

@@ -2,6 +2,8 @@ import os
 import numpy as np
 import ffmpeg
 
+from .file import File,VIDEO
+
 Y,X = 27,48
 fps = 2
 
@@ -39,14 +41,14 @@ def get_res(v):
   return (int(vs['height']),int(vs['width']),int(float(vs['duration'])))
 
 
-class Video:
-  def __init__(self,path,**kwargs):
-    self.path = path
-    for kw in ['_height','_width','_length','sigrgb','signature_path']:
+class Video(File):
+  def __init__(self,path,signature_path,**kwargs):
+    for kw in ['_height','_width','_length','sigrgb']:
       setattr(self,kw,kwargs.pop(kw.strip('_'),None))
-    if kwargs:
-      raise AttributeError(f"Unknown kwargs in Video.__init__: {kwargs}")
     self._signature = None
+    self.signature_path = signature_path
+    File.__init__(self,path,**kwargs)
+    self.type = VIDEO
 
   def compute_attrs(self):
     try:
@@ -56,7 +58,7 @@ class Video:
       self._height, self._width = 0,0
       self._length = 0
 
-  def compute_sig(self):
+  def compute_signatures(self):
     self._signature = mkarr(self.path)
     #d = vid_library_path+os.path.dirname(self.path)
     #os.makedirs(d,exist_ok=True)
